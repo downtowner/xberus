@@ -1,0 +1,4 @@
+2020/12/25 16:03:15.451 [M] [console_test.go:9]  emergency
+2020/12/25 16:03:15.451 [A] [console_test.go:10]  alert
+2020/12/25 16:03:15.451 [C] [console_test.go:11]  critical
+2020/12/25 16:03:15.451 [E] [console_test.go:12]  error

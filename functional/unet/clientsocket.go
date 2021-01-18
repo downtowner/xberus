@@ -7,11 +7,12 @@ import (
 	"net"
 	"sync"
 	"time"
-	"xframe/functional/upackage"
+
+	"git.vnnox.net/ncp/xframe/functional/upackage"
 )
 
 /**
-author: irarus
+author: icarus
 data: 2020-10-27
 
 note:
@@ -25,12 +26,23 @@ The meaning of the parameters is as follows:
 readchecktime check socket cycle of read data, closed when it time out, 0,uncheck, unit:second
 
 **/
+
+//Client must be implemented method
+type HandleMessage interface {
+
+	//cmd
+	OnCmdMessage(cmd string, data []byte) error
+
+	//id
+	OnIDMessage(id int, data []byte) error
+
+	
+}
+
 func NewClientSocket() Client {
 
 	p := ClientSocket{}
-	p.readchecktime = 0
-	p.wg = &sync.WaitGroup{}
-
+	p.Init()
 	return &p
 }
 
@@ -50,6 +62,12 @@ type ClientSocket struct {
 
 	//go goroutine
 	wg *sync.WaitGroup
+
+	//subclass redirect to subclass
+	hm HandleMessage
+
+	//for close signal
+	status chan struct{}
 }
 
 //Loop ...
@@ -62,7 +80,8 @@ func (c *ClientSocket) loop() {
 			c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.readchecktime) * time.Second))
 		}
 
-		if err := c.receivePackage(); nil != err {
+		err := c.receivePackage()
+		if nil != err {
 
 			break
 		}
@@ -70,13 +89,24 @@ func (c *ClientSocket) loop() {
 
 	c.Close()
 
+	c.status <- struct{}{}
+
 	c.wg.Done()
+}
+
+func (c *ClientSocket) Init() {
+
+	c.readchecktime = 0
+	c.wg = &sync.WaitGroup{}
+	
+	c.status = make(chan struct{})
 }
 
 func (c *ClientSocket) receivePackage() error {
 
-	recvFixedData := func(buf []byte, length int) error {
+	recvFixedData := func(length int) ([]byte, error) {
 
+		var buf []byte
 		recvSize := 0
 		for {
 
@@ -91,18 +121,18 @@ func (c *ClientSocket) receivePackage() error {
 			if nil != err {
 
 				log.Println("read err:", err)
-				return err
+				return nil, err
 			}
 
 			recvSize += cn
-			buf = append(buf, buf...)
+			buf = append(buf, tmpBuf[:cn]...)
 			if recvSize >= length {
 
 				break
 			}
 		}
 
-		return nil
+		return buf, nil
 	}
 
 	mark := make([]byte, 1)
@@ -134,8 +164,8 @@ func (c *ClientSocket) receivePackage() error {
 		headerlen = 12
 	}
 
-	headerBuf := []byte{}
-	if err := recvFixedData(headerBuf, headerlen); nil != err {
+	var headerBuf []byte
+	if headerBuf, err = recvFixedData(headerlen); nil != err {
 
 		return err
 	}
@@ -153,8 +183,8 @@ func (c *ClientSocket) receivePackage() error {
 		cmd = pkgHeader.ReadPackageCmd()
 	}
 
-	bodyBuf := []byte{}
-	if err := recvFixedData(bodyBuf, int(pkgHeader.ReadDataLength())); nil != err {
+	var bodyBuf []byte
+	if bodyBuf, err = recvFixedData(int(pkgHeader.ReadDataLength())); nil != err {
 
 		return err
 	}
@@ -168,25 +198,20 @@ func (c *ClientSocket) HandleMessage(mark int8, id int, cmd string, data []byte)
 	var err error
 	if upackage.HeaderMarkID == upackage.HeaderType(mark) {
 
-		err = c.OnIDMessage(id, data)
+		if nil != c.hm {
+
+			err = c.hm.OnIDMessage(id, data)
+		}
+
 	} else {
 
-		err = c.OnCmdMessage(cmd, data)
+		if nil != c.hm {
+
+			err = c.hm.OnCmdMessage(cmd, data)
+		}
 	}
 
 	return err
-}
-
-//OnCmdMessage handle cmd message
-func (c *ClientSocket) OnCmdMessage(cmd string, data []byte) error {
-
-	return nil
-}
-
-//OnIDMessage handle id message
-func (c *ClientSocket) OnIDMessage(id int, data []byte) error {
-
-	return nil
 }
 
 //Close close socket
@@ -211,7 +236,7 @@ param1: ctx
 param2: conn
 param3: readdeadtime
 */
-func (c *ClientSocket) Initialize(ctx context.Context, conn *net.TCPConn, checkTime int) {
+func (c *ClientSocket) Initialize(ctx context.Context, signal chan int32, conn *net.TCPConn, id int32, checkTime int) {
 
 	c.ctx = ctx
 	c.conn = conn
@@ -220,29 +245,96 @@ func (c *ClientSocket) Initialize(ctx context.Context, conn *net.TCPConn, checkT
 	c.wg.Add(2)
 
 	//listen ctx status
-	go func(ctx context.Context, c *net.TCPConn, wg *sync.WaitGroup) {
+	go func(cs *ClientSocket, signal chan int32, id int32) {
 
+		var err error
 		select {
 
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 
 			//just for server exit,close read
-			c.CloseRead()
+			conn.CloseRead()
 
-			wg.Done()
+			err = ctx.Err()
+
+			<-c.status
+		case <-c.status:
+
+			err = fmt.Errorf("an existing connection was forcibly closed by the remote host")
 		}
-	}(c.ctx, c.conn, c.wg)
+
+		c.wg.Done()
+
+		c.wg.Wait()
+
+		signal <- id
+
+		log.Printf("client[%s] exiting... reason: %s\n", c.conn.RemoteAddr().String(), err)
+
+	}(c, signal, id)
 
 	//for read data
 	go c.loop()
-
-	c.Close()
 }
 
-//Done safe exit service
-func (c *ClientSocket) Done() {
+//Redirect2Sub Runtime polymorphism
+func (c *ClientSocket) Redirect2Sub(hm HandleMessage) {
 
-	c.wg.Wait()
+	c.hm = hm
+}
 
-	log.Printf("client[%s] exiting... reason: %s\n", c.remoteAddr, c.ctx.Err())
+//RemoteAddress remote host address info
+func (c *ClientSocket) RemoteAddress() string {
+
+	return c.conn.RemoteAddr().String()
+}
+
+//SendIDMessage ...
+func (c *ClientSocket) SendIDMessage(id int, data []byte) error {
+
+	pkg := upackage.BPackage{}
+	pkg.AddPackageID(int16(id))
+	pkg.AddBytes(data)
+	pkg.Done()
+
+	wData := pkg.GetData()
+	leftCount := len(wData)
+	for leftCount > 0 {
+
+		slen, err := c.conn.Write(wData)
+		if nil != err {
+
+			return err
+		}
+
+		wData = wData[slen:]
+		leftCount -= slen
+	}
+
+	return nil
+}
+
+//SendCmdMessage ...
+func (c *ClientSocket) SendCmdMessage(cmd string, data []byte) error {
+
+	pkg := upackage.BPackage{}
+	pkg.AddPackageCmd(cmd)
+	pkg.AddBytes(data)
+	pkg.Done()
+
+	wData := pkg.GetData()
+	leftCount := len(wData)
+	for leftCount > 0 {
+
+		slen, err := c.conn.Write(wData)
+		if nil != err {
+
+			return err
+		}
+
+		wData = wData[slen:]
+		leftCount -= slen
+	}
+
+	return nil
 }

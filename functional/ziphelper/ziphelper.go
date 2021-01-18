@@ -7,16 +7,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
-	"runtime"
 )
 
 //ZipHelper Encapsulate compress and uncompress for zip
 type ZipHelper struct {
 	filelist map[string][]byte
-	dir      string
-
-	dirsplit string
 }
 
 //NewZipHelper create zip reader obj
@@ -25,49 +20,7 @@ func NewZipHelper() *ZipHelper {
 	p := ZipHelper{}
 	p.filelist = make(map[string][]byte)
 
-	if "windows" == runtime.GOOS {
-
-		p.dirsplit = "\\"
-	} else {
-
-		p.dirsplit = "/"
-	}
-
 	return &p
-}
-
-//AddDir add a file dir to zip
-func (z *ZipHelper) AddDir(dir string) error {
-
-	f, err := os.Stat(dir)
-	if !(err == nil || os.IsExist(err)) {
-
-		return fmt.Errorf("dir not exist")
-	}
-
-	if !f.IsDir() {
-
-		return fmt.Errorf("dir must be dir")
-	}
-
-	z.dir = dir
-
-	if "windows" == runtime.GOOS {
-
-		if string(dir[len(dir)-1]) != "\\" {
-
-			z.dir = dir + z.dirsplit
-		}
-	} else {
-
-		if string(dir[len(dir)-1]) != "/" {
-
-			z.dir = dir + z.dirsplit
-		}
-
-	}
-
-	return nil
 }
 
 //Add add a file to zip package
@@ -85,11 +38,6 @@ func (z *ZipHelper) Add(fName string, data []byte) error {
 
 //Compress compress files to zip file
 func (z *ZipHelper) Compress() ([]byte, error) {
-
-	if 0 != len(z.dir) {
-
-		z.enumFiles(z.dir)
-	}
 
 	if 0 == len(z.filelist) {
 
@@ -157,35 +105,4 @@ func (z *ZipHelper) Uncompress(data []byte) (map[string][]byte, error) {
 	}
 
 	return files, nil
-}
-
-//enumFiles enum all files,include files in sub dirs
-func (z *ZipHelper) enumFiles(pathname string) error {
-
-	rd, err := ioutil.ReadDir(pathname)
-
-	if nil != err {
-		return err
-	}
-
-	for _, fi := range rd {
-
-		if fi.IsDir() {
-
-			z.enumFiles(pathname + fi.Name() + z.dirsplit)
-		} else {
-
-			//fmt.Println(pathname + fi.Name())
-			fbody, err := ioutil.ReadFile(pathname + fi.Name())
-			if nil != err {
-
-				log.Println("read file err:", err)
-				continue
-			}
-
-			z.filelist[fi.Name()] = fbody
-		}
-	}
-
-	return nil
 }

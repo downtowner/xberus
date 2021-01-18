@@ -2,7 +2,6 @@ package udpproxy
 
 import (
 	"errors"
-	"flag"
 	"log"
 	"strings"
 )
@@ -26,26 +25,21 @@ type UDPProxyServer struct {
 }
 
 // run run service
-func (u *UDPProxyServer) Run() error {
+func (u *UDPProxyServer) Run(listen, targets string) error {
 
-	flag.StringVar(&u.listenAddress, "lis", "", "local host listen address")
+	if 0 == len(listen) || 0 == len(targets) {
 
-	var tmp string
-	flag.StringVar(&tmp, "des", "", "transport to target host, please use ';' to split multiple host")
-
-	flag.Parse()
-
-	if 0 == len(u.listenAddress) || 0 == len(tmp) {
-
-		log.Println("input params error, eg: -lis=ip:port -des=ip:port;ip:port")
-		return errors.New("input params error, eg: -lis=ip:port -des=ip:port;ip:port")
+		log.Println("run start params error")
+		return errors.New("run start params error")
 	}
 
-	u.targetAddress = strings.Split(tmp, ";")
+	u.listenAddress = listen
+
+	u.targetAddress = strings.Split(targets, ";")
 	if 0 == len(u.targetAddress) {
 
-		log.Println("input params error, eg: -lis=ip:port -des=ip:port;ip:port")
-		return errors.New("input params error, eg: -lis=ip:port -des=ip:port;ip:port")
+		log.Println("parse targets param err,eg: xxx.xxx.xx.x:a;xxx.xxx.x.x:b")
+		return errors.New("parse targets param err,eg: xxx.xxx.xx.x:a;xxx.xxx.x.x:b")
 	}
 
 	c := NewConnector(u.listenAddress)

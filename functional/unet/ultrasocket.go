@@ -5,7 +5,8 @@ import (
 	"log"
 	"net"
 	"sync"
-	"xframe/functional/upackage"
+
+	"git.vnnox.net/ncp/xframe/functional/upackage"
 )
 
 //UltralSocket ...
@@ -89,6 +90,9 @@ func (u *UltralSocket) SendIDMessage(id int, data []byte) error {
 	leftCount := len(wData)
 	for leftCount > 0 {
 
+		if nil == u.conn {
+			log.Println(")))))))))))((((((((((((((((")
+		}
 		slen, err := u.conn.Write(wData)
 		if nil != err {
 
@@ -139,7 +143,7 @@ func (u *UltralSocket) SendAndRecvIDMsg(id int, data []byte, handle func(int, []
 
 		return err
 	}
-	
+
 	_, id, _, body, err := u.receiveOnce()
 	if nil != err {
 
@@ -185,16 +189,16 @@ func (u *UltralSocket) loop() error {
 
 	for {
 
-		defer u.wg.Done()
-
 		mark, id, cmd, body, err := u.receiveOnce()
 		if nil != err {
 
+			u.wg.Done()
 			return err
 		}
 
 		if err := u.handle(mark, int32(id), cmd, body); nil != err {
 
+			u.wg.Done()
 			return err
 		}
 	}
@@ -202,8 +206,9 @@ func (u *UltralSocket) loop() error {
 
 func (u *UltralSocket) receiveOnce() (int8, int, string, []byte, error) {
 
-	recvFixedData := func(buf []byte, length int) error {
+	recvFixedData := func(length int) ([]byte, error) {
 
+		var buf []byte
 		recvSize := 0
 		for {
 
@@ -218,18 +223,18 @@ func (u *UltralSocket) receiveOnce() (int8, int, string, []byte, error) {
 			if nil != err {
 
 				log.Println("read err:", err)
-				return err
+				return nil, err
 			}
 
 			recvSize += cn
-			buf = append(buf, buf...)
+			buf = append(buf, tmpBuf[:cn]...)
 			if recvSize >= length {
 
 				break
 			}
 		}
 
-		return nil
+		return buf, nil
 	}
 
 	mark := make([]byte, 1)
@@ -261,8 +266,8 @@ func (u *UltralSocket) receiveOnce() (int8, int, string, []byte, error) {
 		headerlen = 12
 	}
 
-	headerBuf := []byte{}
-	if err := recvFixedData(headerBuf, headerlen); nil != err {
+	var headerBuf []byte
+	if headerBuf, err = recvFixedData(headerlen); nil != err {
 
 		return 0, 0, "", nil, err
 	}
@@ -280,8 +285,8 @@ func (u *UltralSocket) receiveOnce() (int8, int, string, []byte, error) {
 		cmd = pkgHeader.ReadPackageCmd()
 	}
 
-	bodyBuf := []byte{}
-	if err := recvFixedData(bodyBuf, int(pkgHeader.ReadDataLength())); nil != err {
+	var bodyBuf []byte
+	if bodyBuf, err = recvFixedData(int(pkgHeader.ReadDataLength())); nil != err {
 
 		return 0, 0, "", nil, err
 	}

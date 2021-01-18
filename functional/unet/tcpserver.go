@@ -68,7 +68,7 @@ func (t *TCPServer) Run(network, address string, hc Connections) {
 	if nil != err {
 
 		log.Printf("Resolve error: %s\n", err)
-
+		cancle()
 		return
 	}
 
@@ -76,13 +76,13 @@ func (t *TCPServer) Run(network, address string, hc Connections) {
 	if nil != err {
 
 		log.Println(err)
-
+		cancle()
 		return
 	}
 
-	for {
+	log.Println("server running on ", addr)
 
-		log.Println("server running on ", addr)
+	for {
 
 		conn, err := t.listener.AcceptTCP()
 		if nil != err {
